@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Route, BrowserRouter, Routes } from 'react-router-dom'
+import { Link, Route, HashRouter, Routes } from 'react-router-dom'
 import mammoth from 'mammoth'
 import { createClient } from '@supabase/supabase-js'
 import * as pdfjsLib from 'pdfjs-dist'
@@ -686,7 +686,7 @@ function App() {
   }
 
   return (
-    <BrowserRouter basename={import.meta.env.BASE_URL || '/'}>
+    <HashRouter>
       <header className="app-header">
         <div>
           <p className="eyebrow">Resume scanner</p>
@@ -723,7 +723,7 @@ function App() {
           <Route path="/search" element={<SearchPage supabase={supabase} />} />
         </Routes>
       </main>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
 
