@@ -11,7 +11,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString()
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+const fallbackSupabaseUrl = 'https://alhpaonzrrzfwigbfaxf.supabase.co'
+const defaultSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || fallbackSupabaseUrl
 const storageKey = 'resume_scanner.supabase_anon_key'
 
 interface ParsedResume {
@@ -338,7 +339,7 @@ function UploadPage({ supabase }: { supabase: any }) {
     const resumeToSave = editable ?? parsed
 
     if (!supabase || !resumeToSave) {
-      setSaveStatus('Database is not configured yet. Add your Supabase credentials to the environment.')
+      setSaveStatus('Database is not configured yet. Please enter your Supabase URL and anonymous key first.')
       return
     }
 
@@ -648,11 +649,11 @@ function App() {
   const [showKeySetup, setShowKeySetup] = useState(false)
 
   const supabase = useMemo<any>(() => {
-    if (!supabaseUrl || !supabaseKey) {
+    if (!defaultSupabaseUrl || !supabaseKey) {
       return null
     }
 
-    return createClient(supabaseUrl, supabaseKey)
+    return createClient(defaultSupabaseUrl, supabaseKey)
   }, [supabaseKey])
 
   useEffect(() => {
@@ -661,6 +662,7 @@ function App() {
     }
 
     const savedKey = window.localStorage.getItem(storageKey)
+
     if (savedKey) {
       setSupabaseKey(savedKey)
       setKeyInput(savedKey)
@@ -671,7 +673,7 @@ function App() {
     setConfigMessage('Enter your Supabase anonymous key to continue.')
   }, [])
 
-  const saveSupabaseKey = () => {
+  const saveSupabaseConfig = () => {
     const trimmedKey = keyInput.trim()
 
     if (!trimmedKey) {
@@ -701,7 +703,7 @@ function App() {
       {showKeySetup && (
         <section className="panel config-panel">
           <p className="eyebrow">Database setup</p>
-          <h3>Supabase anonymous key</h3>
+          <h3>Supabase key</h3>
           <input
             className="config-input"
             type="password"
@@ -709,7 +711,7 @@ function App() {
             value={keyInput}
             onChange={(event) => setKeyInput(event.target.value)}
           />
-          <button className="save-button" type="button" onClick={saveSupabaseKey}>
+          <button className="save-button" type="button" onClick={saveSupabaseConfig}>
             Save key
           </button>
         </section>
