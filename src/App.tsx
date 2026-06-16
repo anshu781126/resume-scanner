@@ -45,6 +45,7 @@ interface ResumeRecord {
   raw_text: string | null
   experience: number | null
   dob: string | null
+  duplicate: boolean
   created_at: string
 }
 
@@ -70,6 +71,68 @@ const skillKeywords = [
 
 const normalizeText = (value: string) =>
   value.replace(/\s+/g, ' ').replace(/\n+/g, '\n').trim()
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const getNormalizedValue = (value: string | null | undefined) =>
+  (value || '').trim().toLowerCase()
+
+const normalizeContactValue = (value: string | null | undefined) => {
+  const cleaned = (value || '').trim()
+
+  return cleaned
+    .replace(/[^a-zA-Z0-9@+._-]/g, '')
+    .replace(/\s+/g, '')
+}
+
+const normalizeNameValue = (value: string | null | undefined) => {
+  return (value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[|\\/]+/g, ' ')
+    .replace(/[^A-Za-z\s.'-]/g, '')
+}
+
+const findPotentialDuplicateMatches = (
+  record: Pick<ResumeRecord, 'id' | 'name' | 'email' | 'phone' | 'dob'>,
+  records: Pick<ResumeRecord, 'id' | 'name' | 'email' | 'phone' | 'dob'>[],
+) => {
+  const reasons: string[] = []
+
+  for (const candidate of records) {
+    if (candidate.id === record.id) {
+      continue
+    }
+
+    const normalizedRecordEmail = getNormalizedValue(record.email)
+    const normalizedCandidateEmail = getNormalizedValue(candidate.email)
+    const normalizedRecordPhone = getNormalizedValue(record.phone)
+    const normalizedCandidatePhone = getNormalizedValue(candidate.phone)
+    const normalizedRecordDob = getNormalizedValue(record.dob)
+    const normalizedCandidateDob = getNormalizedValue(candidate.dob)
+    const normalizedRecordName = getNormalizedValue(record.name)
+    const normalizedCandidateName = getNormalizedValue(candidate.name)
+
+    const sameEmail = normalizedRecordEmail && normalizedRecordEmail === normalizedCandidateEmail
+    const samePhone = normalizedRecordPhone && normalizedRecordPhone === normalizedCandidatePhone
+    const sameDob = normalizedRecordDob && normalizedRecordDob === normalizedCandidateDob
+    const sameName =
+      normalizedRecordName &&
+      normalizedCandidateName &&
+      normalizedRecordName === normalizedCandidateName &&
+      (sameEmail || samePhone || sameDob)
+
+    if (sameEmail || samePhone || sameDob || sameName) {
+      if (sameEmail) reasons.push('email')
+      if (samePhone) reasons.push('contact')
+      if (sameDob) reasons.push('dob')
+      if (sameName) reasons.push('name')
+      break
+    }
+  }
+
+  return Array.from(new Set(reasons))
+}
 
 const extractionRegex = {
   email: /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/i,
@@ -358,11 +421,40 @@ function UploadPage({ supabase }: { supabase: any }) {
 
     setSaveStatus('Saving...')
 
+    const { data: existingRecords, error: lookupError } = await supabase
+      .from('resumes')
+      .select('id,file_name,name,email,phone,dob,duplicate')
+      .order('created_at', { ascending: false })
+
+    if (lookupError) {
+      setSaveStatus(`Save failed: ${lookupError.message}`)
+      return
+    }
+
+    const normalizedEmail = normalizeContactValue(resumeToSave.email)
+    const normalizedPhone = normalizeContactValue(resumeToSave.phone)
+    const normalizedName = normalizeNameValue(resumeToSave.name)
+
+    const duplicateReasons = findPotentialDuplicateMatches(
+      {
+        id: '',
+        name: normalizedName,
+        email: normalizedEmail,
+        phone: normalizedPhone,
+        dob: resumeToSave.dob || '',
+      },
+      (existingRecords || []).map((record: any) => ({
+        ...record,
+        email: normalizeContactValue(record.email),
+        phone: normalizeContactValue(record.phone),
+      })),
+    )
+
     const payload = {
       file_name: resumeToSave.fileName,
-      name: resumeToSave.name || null,
-      email: resumeToSave.email || null,
-      phone: resumeToSave.phone || null,
+      name: normalizedName || null,
+      email: normalizedEmail || null,
+      phone: normalizedPhone || null,
       city: resumeToSave.city || null,
       state: resumeToSave.state || null,
       country: resumeToSave.country || null,
@@ -371,6 +463,7 @@ function UploadPage({ supabase }: { supabase: any }) {
       raw_text: resumeToSave.extractedText || null,
       experience: Number.isFinite(resumeToSave.experience) ? resumeToSave.experience : null,
       dob: resumeToSave.dob || null,
+      duplicate: false,
     }
 
     const { error } = await supabase.from('resumes').insert(payload)
@@ -380,7 +473,11 @@ function UploadPage({ supabase }: { supabase: any }) {
       return
     }
 
-    setSaveStatus('Resume saved successfully.')
+    setSaveStatus(
+      duplicateReasons.length > 0
+        ? `Resume saved successfully. Potential duplicate match reason(s): ${duplicateReasons.join(', ')}.`
+        : 'Resume saved successfully.'
+    )
   }
 
   return (
@@ -575,7 +672,7 @@ function SearchPage({ supabase }: { supabase: any }) {
 
   const filteredRecords = useMemo(() => {
     const value = query.trim().toLowerCase()
-    if (!value) return records
+    if (!value) return []
 
     return records.filter((record) =>
       [
@@ -599,6 +696,22 @@ function SearchPage({ supabase }: { supabase: any }) {
         .includes(value),
     )
   }, [query, records])
+
+  const renderHighlightedText = (text: string) => {
+    const value = query.trim()
+    if (!value) return text
+
+    const pattern = new RegExp(`(${escapeRegExp(value)})`, 'gi')
+    const parts = text.split(pattern)
+
+    return parts.map((part, index) =>
+      part.toLowerCase() === value.toLowerCase() ? (
+        <mark key={`${part}-${index}`}>{part}</mark>
+      ) : (
+        <span key={`${part}-${index}`}>{part}</span>
+      ),
+    )
+  }
 
   return (
     <div className="search-page">
@@ -624,6 +737,7 @@ function SearchPage({ supabase }: { supabase: any }) {
               <div>
                 <p className="record-file">{record.file_name}</p>
                 <h3>{record.name || 'Unnamed candidate'}</h3>
+                {record.duplicate && <span className="duplicate-pill">Duplicate</span>}
               </div>
               <div className="record-meta">
                 <span>{record.email || 'No email'}</span>
@@ -644,11 +758,118 @@ function SearchPage({ supabase }: { supabase: any }) {
               {record.raw_text && (
                 <details className="record-details">
                   <summary>View raw text</summary>
-                  <pre>{record.raw_text}</pre>
+                  <pre>{renderHighlightedText(record.raw_text)}</pre>
                 </details>
               )}
             </article>
           ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function DuplicatePage({ supabase }: { supabase: any }) {
+  const [records, setRecords] = useState<ResumeRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const fetchData = async () => {
+    if (!supabase) {
+      setError('Supabase credentials are missing. Configure your environment variables first.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    const { data, error } = await supabase
+      .from('resumes')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      setError(error.message)
+    } else {
+      setRecords(data || [])
+    }
+
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void fetchData()
+  }, [])
+
+  const toggleDuplicate = async (record: ResumeRecord) => {
+    if (!supabase) {
+      return
+    }
+
+    const { error } = await supabase
+      .from('resumes')
+      .update({ duplicate: !record.duplicate })
+      .eq('id', record.id)
+
+    if (error) {
+      setError(error.message)
+      return
+    }
+
+    setRecords((current) =>
+      current.map((item) =>
+        item.id === record.id
+          ? { ...item, duplicate: !item.duplicate }
+          : item,
+      ),
+    )
+  }
+
+  const candidateRecords = useMemo(() => {
+    return records.filter((record) => {
+      const reasons = findPotentialDuplicateMatches(record, records)
+      return reasons.length > 0
+    })
+  }, [records])
+
+  return (
+    <div className="search-page">
+      <section className="panel search-panel">
+        <div className="panel-header">
+          <p className="eyebrow">Review</p>
+          <h1>Duplicate resumes</h1>
+        </div>
+
+        {error && <p className="error-text">{error}</p>}
+        {loading && <p className="loading-text">Loading duplicate review...</p>}
+
+        <div className="record-list">
+          {candidateRecords.map((record) => {
+            const reasons = findPotentialDuplicateMatches(record, records)
+            return (
+              <article key={record.id} className="record-card">
+                <div>
+                  <p className="record-file">{record.file_name}</p>
+                  <h3>{record.name || 'Unnamed candidate'}</h3>
+                </div>
+                <div className="record-meta">
+                  <span>{record.email || 'No email'}</span>
+                  <span>{record.phone || 'No phone'}</span>
+                  <span>{record.dob || 'No DOB'}</span>
+                </div>
+                <p className="record-summary">
+                  Potential duplicate match by: {reasons.join(', ')}
+                </p>
+                <button
+                  className="save-button"
+                  type="button"
+                  onClick={() => void toggleDuplicate(record)}
+                >
+                  {record.duplicate ? 'Unmark as duplicate' : 'Mark as duplicate'}
+                </button>
+              </article>
+            )
+          })}
         </div>
       </section>
     </div>
@@ -710,6 +931,7 @@ function App() {
         <nav>
           <Link to="/">Upload</Link>
           <Link to="/search">Search</Link>
+          <Link to="/duplicates">Duplicates</Link>
         </nav>
       </header>
 
@@ -736,6 +958,7 @@ function App() {
         <Routes>
           <Route path="/" element={<UploadPage supabase={supabase} />} />
           <Route path="/search" element={<SearchPage supabase={supabase} />} />
+          <Route path="/duplicates" element={<DuplicatePage supabase={supabase} />} />
         </Routes>
       </main>
     </HashRouter>
