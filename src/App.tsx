@@ -52,7 +52,20 @@ const allowedTypes = ['.pdf', '.docx', '.doc', '.rtf']
 const skillKeywords = [
   'JavaScript', 'TypeScript', 'React', 'Node.js', 'Python', 'Java', 'HTML',
   'CSS', 'SQL', 'PostgreSQL', 'MongoDB', 'AWS', 'Docker', 'Git', 'REST API',
-  'GraphQL', 'UI', 'UX', 'Testing', 'CI/CD', 'Machine Learning', 'AI', 'Azure'
+  'GraphQL', 'UI', 'UX', 'Testing', 'CI/CD', 'Machine Learning', 'AI', 'Azure',
+  'Vue.js', 'Angular', 'Next.js', 'Express.js', 'NestJS', 'FastAPI', 'Spring Boot',
+  'Django', 'Flask', 'Laravel', 'Ruby on Rails', 'Go', 'C#', 'C++', 'Kotlin',
+  'Swift', 'PHP', 'MySQL', 'SQLite', 'Redis', 'ElasticSearch', 'Kafka', 'RabbitMQ',
+  'Linux', 'Unix', 'DevOps', 'Kubernetes', 'Terraform', 'Jenkins', 'GitHub Actions',
+  'GitLab CI', 'Docker Compose', 'Webpack', 'Vite', 'Jest', 'Cypress', 'Playwright',
+  'Postman', 'Swagger', 'OpenAPI', 'Figma', 'Adobe XD', 'Linux', 'Agile',
+  'Scrum', 'SEO', 'Accessibility', 'Performance Optimization', 'Microservices',
+  'API Design', 'Data Structures', 'Algorithms', 'System Design', 'Cloud Computing',
+  'Communication', 'Leadership', 'Teamwork', 'Problem Solving', 'Time Management',
+  'Conflict Resolution', 'Customer Service', 'Project Management', 'Strategic Planning',
+  'Decision Making', 'Adaptability', 'Critical Thinking', 'Presentation Skills',
+  'Negotiation', 'Mentoring', 'Coaching', 'Stakeholder Management', 'Budgeting',
+  'Planning', 'Organizational Skills', 'Interpersonal Skills', 'Research', 'Documentation'
 ]
 
 const normalizeText = (value: string) =>
@@ -691,8 +704,8 @@ function App() {
     <HashRouter>
       <header className="app-header">
         <div>
-          <p className="eyebrow">Resume scanner</p>
-          <h2>Data extractor</h2>
+          <p className="eyebrow">NHN Solutions</p>
+          <h2>Resume Scanner</h2>
         </div>
         <nav>
           <Link to="/">Upload</Link>

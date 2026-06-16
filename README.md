@@ -1,4 +1,4 @@
-# Resume Scanner
+# NHN Solutions Resume Scanner
 
 A React + Vite app that extracts key details from resume files, saves them to a hosted database, and lets you search the stored records.
 
