@@ -11,11 +11,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString()
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+const storageKey = 'resume_scanner.supabase_anon_key'
 
 interface ParsedResume {
   fileName: string
@@ -24,8 +21,13 @@ interface ParsedResume {
   name: string
   email: string
   phone: string
+  city: string
+  state: string
+  country: string
   skills: string[]
   summary: string
+  experience: number | null
+  dob: string
 }
 
 interface ResumeRecord {
@@ -34,9 +36,14 @@ interface ResumeRecord {
   name: string
   email: string
   phone: string
+  city: string | null
+  state: string | null
+  country: string | null
   skills: string[]
-  summary: string
-  raw_text: string
+  summary: string | null
+  raw_text: string | null
+  experience: number | null
+  dob: string | null
   created_at: string
 }
 
@@ -52,7 +59,7 @@ const normalizeText = (value: string) =>
 
 const extractionRegex = {
   email: /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/i,
-  phone: /(\+?[0-9][0-9\s().-]{7,}[0-9])/,
+  phone: /(\+?[0-9][0-9\s().-]{7,}[0-9])/, 
 }
 
 const extractName = (text: string) => {
@@ -75,6 +82,105 @@ const extractName = (text: string) => {
 
 const extractEmail = (text: string) => text.match(extractionRegex.email)?.[1] || ''
 const extractPhone = (text: string) => text.match(extractionRegex.phone)?.[1] || ''
+
+const monthMap: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12',
+}
+
+const normalizeDateValue = (value: string) => {
+  const text = value.trim()
+
+  const isoMatch = text.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`
+  }
+
+  const slashMatch = text.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/)
+  if (slashMatch) {
+    const year = slashMatch[3].length === 2 ? `20${slashMatch[3]}` : slashMatch[3]
+    return `${year}-${slashMatch[1].padStart(2, '0')}-${slashMatch[2].padStart(2, '0')}`
+  }
+
+  const monthMatch = text.match(/([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})/)
+  if (monthMatch) {
+    const month = monthMap[monthMatch[1].toLowerCase()]
+    if (month) {
+      return `${monthMatch[3]}-${month}-${monthMatch[2].padStart(2, '0')}`
+    }
+  }
+
+  return ''
+}
+
+const extractDob = (text: string) => {
+  const datePatterns = [
+    /(?:date of birth|dob|born)\s*[:#-]?\s*([0-9]{1,2}[/-][0-9]{1,2}[/-][0-9]{2,4})/i,
+    /(?:date of birth|dob|born)\s*[:#-]?\s*([A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{4})/i,
+    /(?:date of birth|dob|born)\s*[:#-]?\s*([0-9]{4}[/-][0-9]{1,2}[/-][0-9]{1,2})/i,
+  ]
+
+  for (const pattern of datePatterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) {
+      return normalizeDateValue(match[1])
+    }
+  }
+
+  return ''
+}
+
+const extractExperience = (text: string) => {
+  const patterns = [
+    /(?:experience|professional experience|work experience)\s*[:\-]?\s*([0-9]{1,2})(?:\+)?\s*(?:years?|yrs?|yr)/i,
+    /([0-9]{1,2})(?:\+)?\s*(?:years?|yrs?|yr)\s*(?:of\s*)?(?:relevant\s*)?experience/i,
+    /([0-9]{1,2})(?:\+)?\s*(?:years?|yrs?|yr)\s*(?:of\s*)?(?:work|professional)\s*(?:experience)?/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) {
+      return Number(match[1])
+    }
+  }
+
+  return null
+}
+
+const extractLocation = (text: string) => {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+
+  const findValue = (label: string) => {
+    const patterns = [
+      new RegExp(`${label}[:\-]\s*([^\n]+)`, 'i'),
+      new RegExp(`\b${label}\b[^\n]{0,30}([A-Za-z][A-Za-z\s,.-]+)`, 'i'),
+    ]
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern)
+      if (match?.[1]) {
+        return match[1].replace(/[|]/g, '').trim()
+      }
+    }
+
+    for (const line of lines) {
+      if (line.toLowerCase().includes(label.toLowerCase())) {
+        const parts = line.split(/[:\-]/)
+        if (parts.length > 1) {
+          return parts[1].trim()
+        }
+      }
+    }
+
+    return ''
+  }
+
+  return {
+    city: findValue('city'),
+    state: findValue('state'),
+    country: findValue('country'),
+  }
+}
 
 const extractSkills = (text: string) => {
   const found = new Set<string>()
@@ -137,7 +243,7 @@ const readRtfText = async (file: File) => {
   const buffer = await file.arrayBuffer()
 
   const doc = new RTFJS.Document(buffer, {
-    onPicture: () => null,
+    onPicture: (_isLegacy, create) => create(),
     onHyperlink: (create) => ({
       element: create(),
       content: create(),
@@ -169,6 +275,8 @@ const parseResumeFile = async (file: File): Promise<ParsedResume> => {
   }
 
   const cleanedText = normalizeText(extractedText)
+  const location = extractLocation(cleanedText)
+
   return {
     fileName: file.name,
     fileType: normalizedType,
@@ -176,15 +284,21 @@ const parseResumeFile = async (file: File): Promise<ParsedResume> => {
     name: extractName(cleanedText),
     email: extractEmail(cleanedText),
     phone: extractPhone(cleanedText),
+    city: location.city,
+    state: location.state,
+    country: location.country,
     skills: extractSkills(cleanedText),
     summary: extractSummary(cleanedText),
+    experience: extractExperience(cleanedText),
+    dob: extractDob(cleanedText),
   }
 }
 
-function UploadPage() {
+function UploadPage({ supabase }: { supabase: any }) {
   const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [parsed, setParsed] = useState<ParsedResume | null>(null)
+  const [editable, setEditable] = useState<ParsedResume | null>(null)
   const [error, setError] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
@@ -202,11 +316,13 @@ function UploadPage() {
     setError('')
     setLoading(true)
     setParsed(null)
+    setEditable(null)
     setSaveStatus('')
 
     try {
       const data = await parseResumeFile(selectedFile)
       setParsed(data)
+      setEditable(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not process the resume.')
     } finally {
@@ -214,23 +330,36 @@ function UploadPage() {
     }
   }
 
+  const updateEditable = (changes: Partial<ParsedResume>) => {
+    setEditable((current) => (current ? { ...current, ...changes } : current))
+  }
+
   const saveToDatabase = async () => {
-    if (!supabase || !parsed) {
+    const resumeToSave = editable ?? parsed
+
+    if (!supabase || !resumeToSave) {
       setSaveStatus('Database is not configured yet. Add your Supabase credentials to the environment.')
       return
     }
 
     setSaveStatus('Saving...')
 
-    const { error } = await supabase.from('resumes').insert({
-      file_name: parsed.fileName,
-      name: parsed.name,
-      email: parsed.email,
-      phone: parsed.phone,
-      skills: parsed.skills,
-      summary: parsed.summary,
-      raw_text: parsed.extractedText,
-    })
+    const payload = {
+      file_name: resumeToSave.fileName,
+      name: resumeToSave.name || null,
+      email: resumeToSave.email || null,
+      phone: resumeToSave.phone || null,
+      city: resumeToSave.city || null,
+      state: resumeToSave.state || null,
+      country: resumeToSave.country || null,
+      skills: resumeToSave.skills || [],
+      summary: resumeToSave.summary || null,
+      raw_text: resumeToSave.extractedText || null,
+      experience: Number.isFinite(resumeToSave.experience) ? resumeToSave.experience : null,
+      dob: resumeToSave.dob || null,
+    }
+
+    const { error } = await supabase.from('resumes').insert(payload)
 
     if (error) {
       setSaveStatus(`Save failed: ${error.message}`)
@@ -280,36 +409,106 @@ function UploadPage() {
         {error && <p className="error-text">{error}</p>}
         {loading && <p className="loading-text">Parsing resume...</p>}
 
-        {parsed && (
+        {editable && (
           <>
-            <div className="fields-grid">
-              <div>
+            <div className="fields-grid editor-grid">
+              <label className="editor-field">
                 <span className="field-label">Name</span>
-                <strong>{parsed.name}</strong>
-              </div>
-              <div>
+                <input
+                  value={editable.name}
+                  onChange={(event) => updateEditable({ name: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
                 <span className="field-label">Email</span>
-                <strong>{parsed.email || '—'}</strong>
-              </div>
-              <div>
+                <input
+                  value={editable.email}
+                  onChange={(event) => updateEditable({ email: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
                 <span className="field-label">Phone</span>
-                <strong>{parsed.phone || '—'}</strong>
-              </div>
+                <input
+                  value={editable.phone}
+                  onChange={(event) => updateEditable({ phone: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
+                <span className="field-label">City</span>
+                <input
+                  value={editable.city}
+                  onChange={(event) => updateEditable({ city: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
+                <span className="field-label">State</span>
+                <input
+                  value={editable.state}
+                  onChange={(event) => updateEditable({ state: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
+                <span className="field-label">Country</span>
+                <input
+                  value={editable.country}
+                  onChange={(event) => updateEditable({ country: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
+                <span className="field-label">Experience (years)</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={editable.experience ?? ''}
+                  onChange={(event) =>
+                    updateEditable({
+                      experience: event.target.value === '' ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="editor-field">
+                <span className="field-label">Date of Birth</span>
+                <input
+                  type="date"
+                  value={editable.dob}
+                  onChange={(event) => updateEditable({ dob: event.target.value })}
+                />
+              </label>
             </div>
 
+            <label className="editor-field editor-field--full">
+              <span className="field-label">Skills</span>
+              <input
+                value={editable.skills.join(', ')}
+                onChange={(event) =>
+                  updateEditable({
+                    skills: event.target.value
+                      .split(',')
+                      .map((skill) => skill.trim())
+                      .filter(Boolean),
+                  })
+                }
+              />
+            </label>
+
+            <label className="editor-field editor-field--full">
+              <span className="field-label">Summary</span>
+              <textarea
+                rows={5}
+                value={editable.summary}
+                onChange={(event) => updateEditable({ summary: event.target.value })}
+              />
+            </label>
+
             <div className="skills-row">
-              {parsed.skills.map((skill) => (
+              {editable.skills.map((skill) => (
                 <span key={skill}>{skill}</span>
               ))}
             </div>
 
-            <div className="summary-card">
-              <h3>Summary</h3>
-              <p>{parsed.summary}</p>
-            </div>
-
             <button className="save-button" type="button" onClick={() => void saveToDatabase()}>
-              Save extracted data
+              Save corrected data
             </button>
             {saveStatus && <p className="save-status">{saveStatus}</p>}
           </>
@@ -327,7 +526,7 @@ function UploadPage() {
   )
 }
 
-function SearchPage() {
+function SearchPage({ supabase }: { supabase: any }) {
   const [query, setQuery] = useState('')
   const [records, setRecords] = useState<ResumeRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -365,7 +564,22 @@ function SearchPage() {
     if (!value) return records
 
     return records.filter((record) =>
-      [record.name, record.email, record.phone, record.file_name, record.summary, record.skills.join(' ')]
+      [
+        record.id,
+        record.file_name,
+        record.name,
+        record.email,
+        record.phone,
+        record.city,
+        record.state,
+        record.country,
+        record.summary,
+        record.raw_text,
+        record.skills.join(' '),
+        record.experience,
+        record.dob,
+        record.created_at,
+      ]
         .join(' ')
         .toLowerCase()
         .includes(value),
@@ -395,18 +609,30 @@ function SearchPage() {
             <article key={record.id} className="record-card">
               <div>
                 <p className="record-file">{record.file_name}</p>
-                <h3>{record.name}</h3>
+                <h3>{record.name || 'Unnamed candidate'}</h3>
               </div>
               <div className="record-meta">
                 <span>{record.email || 'No email'}</span>
                 <span>{record.phone || 'No phone'}</span>
+                <span>{new Date(record.created_at).toLocaleDateString()}</span>
               </div>
-              <p className="record-summary">{record.summary}</p>
+              <div className="record-meta record-meta--secondary">
+                <span>{[record.city, record.state, record.country].filter(Boolean).join(', ') || 'Location not provided'}</span>
+                <span>{record.experience != null ? `${record.experience} years` : 'Experience not provided'}</span>
+                <span>{record.dob ? new Date(record.dob).toLocaleDateString() : 'DOB not provided'}</span>
+              </div>
+              <p className="record-summary">{record.summary || 'No summary available'}</p>
               <div className="skills-row">
                 {record.skills.map((skill) => (
                   <span key={`${record.id}-${skill}`}>{skill}</span>
                 ))}
               </div>
+              {record.raw_text && (
+                <details className="record-details">
+                  <summary>View raw text</summary>
+                  <pre>{record.raw_text}</pre>
+                </details>
+              )}
             </article>
           ))}
         </div>
@@ -416,8 +642,51 @@ function SearchPage() {
 }
 
 function App() {
+  const [supabaseKey, setSupabaseKey] = useState('')
+  const [keyInput, setKeyInput] = useState('')
+  const [configMessage, setConfigMessage] = useState('')
+  const [showKeySetup, setShowKeySetup] = useState(false)
+
+  const supabase = useMemo<any>(() => {
+    if (!supabaseUrl || !supabaseKey) {
+      return null
+    }
+
+    return createClient(supabaseUrl, supabaseKey)
+  }, [supabaseKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const savedKey = window.localStorage.getItem(storageKey)
+    if (savedKey) {
+      setSupabaseKey(savedKey)
+      setKeyInput(savedKey)
+      return
+    }
+
+    setShowKeySetup(true)
+    setConfigMessage('Enter your Supabase anonymous key to continue.')
+  }, [])
+
+  const saveSupabaseKey = () => {
+    const trimmedKey = keyInput.trim()
+
+    if (!trimmedKey) {
+      setConfigMessage('Please enter a valid Supabase anonymous key.')
+      return
+    }
+
+    setSupabaseKey(trimmedKey)
+    setShowKeySetup(false)
+    setConfigMessage('')
+    window.localStorage.setItem(storageKey, trimmedKey)
+  }
+
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL || '/'}>
       <header className="app-header">
         <div>
           <p className="eyebrow">Resume scanner</p>
@@ -429,10 +698,29 @@ function App() {
         </nav>
       </header>
 
+      {showKeySetup && (
+        <section className="panel config-panel">
+          <p className="eyebrow">Database setup</p>
+          <h3>Supabase anonymous key</h3>
+          <input
+            className="config-input"
+            type="password"
+            placeholder="Paste your anon key here"
+            value={keyInput}
+            onChange={(event) => setKeyInput(event.target.value)}
+          />
+          <button className="save-button" type="button" onClick={saveSupabaseKey}>
+            Save key
+          </button>
+        </section>
+      )}
+
+      {configMessage && <p className="error-text config-banner">{configMessage}</p>}
+
       <main>
         <Routes>
-          <Route path="/" element={<UploadPage />} />
-          <Route path="/search" element={<SearchPage />} />
+          <Route path="/" element={<UploadPage supabase={supabase} />} />
+          <Route path="/search" element={<SearchPage supabase={supabase} />} />
         </Routes>
       </main>
     </BrowserRouter>

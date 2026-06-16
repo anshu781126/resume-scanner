@@ -98,11 +98,37 @@ main {
   margin-top: 1.25rem;
 }
 
+.editor-grid {
+  align-items: end;
+}
+
 .field-label {
   display: block;
   font-size: 0.8rem;
   color: #64748b;
   margin-bottom: 0.3rem;
+}
+
+.editor-field {
+  display: block;
+}
+
+.editor-field input,
+.editor-field textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.7rem;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.editor-field textarea {
+  resize: vertical;
+}
+
+.editor-field--full {
+  margin-top: 1rem;
 }
 
 .skills-row {
@@ -118,6 +144,23 @@ main {
   padding: 0.35rem 0.6rem;
   border-radius: 999px;
   font-size: 0.85rem;
+}
+
+.config-panel {
+  margin: 1rem 2rem 0;
+}
+
+.config-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.7rem;
+  padding: 0.8rem 0.9rem;
+  box-sizing: border-box;
+  margin-top: 0.75rem;
+}
+
+.config-banner {
+  margin: 1rem 2rem 0;
 }
 
 .summary-card {
@@ -195,6 +238,27 @@ main {
 .record-summary {
   color: #334155;
   margin: 0.75rem 0;
+}
+
+.record-details {
+  margin-top: 0.75rem;
+}
+
+.record-details summary {
+  cursor: pointer;
+  color: #0ea5e9;
+  font-weight: 600;
+}
+
+.record-details pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.75rem;
+  border-radius: 0.6rem;
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 0.5rem;
 }
 
 @media (max-width: 900px) {
