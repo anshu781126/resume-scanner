@@ -12,6 +12,8 @@ A React + Vite app that extracts key details from resume files, saves them to a 
 Create a Supabase project and run this SQL in the SQL editor:
 
 ```sql
+drop table resumes;
+
 create table if not exists resumes (
   id uuid default gen_random_uuid() primary key,
   file_name text not null,
@@ -26,8 +28,19 @@ create table if not exists resumes (
   raw_text text,
   experience int,
   dob date,
+  duplicate boolean,
   created_at timestamp with time zone default now()
 );
+
+alter table resumes enable row level security;
+
+create policy "Allow public read/write"
+on resumes
+for all
+using (true)
+with check (true);
+
+select * from resumes;
 ```
 
 If you want the app to insert data from the browser using the anonymous key, allow writes for the table (for example, disable RLS or add a policy that permits inserts).
