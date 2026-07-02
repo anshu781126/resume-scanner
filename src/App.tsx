@@ -143,18 +143,42 @@ const extractName = (text: string) => {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const candidates = lines.filter((line) => line.length < 60 && !/[|]{3,}/.test(line))
 
+  const explicitNamePatterns = [
+    /(?:^|\n)\s*(?:full\s+name|name|candidate\s+name|resume\s+owner|applicant\s+name)\s*[:\-]\s*([A-Za-z][A-Za-z .'-]{1,60})/i,
+    /(?:^|\n)\s*([A-Z][A-Za-z .'-]{2,40})\s*(?:\|\s*)?$/m,
+  ]
+
+  for (const pattern of explicitNamePatterns) {
+    const match = text.match(pattern)
+    if (match?.[1]) {
+      const value = normalizeNameValue(match[1])
+      if (value && value.toLowerCase() !== 'name') {
+        return value
+      }
+    }
+  }
+
   for (const line of candidates) {
     if (extractionRegex.email.test(line) || extractionRegex.phone.test(line)) {
       continue
     }
 
-    const words = line.split(/\s+/)
+    const cleaned = normalizeNameValue(line)
+    if (!cleaned) continue
+
+    const lower = cleaned.toLowerCase()
+    const blockedTerms = ['skills', 'experience', 'education', 'summary', 'profile', 'objective', 'contact', 'address', 'phone', 'email', 'linkedin', 'github']
+    if (blockedTerms.some((term) => lower.includes(term))) {
+      continue
+    }
+
+    const words = cleaned.split(/\s+/)
     if (words.length <= 4 && words.length >= 2) {
-      return line
+      return cleaned
     }
   }
 
-  return candidates[0] || 'Unknown'
+  return normalizeNameValue(candidates[0]) || 'Unknown'
 }
 
 const extractEmail = (text: string) => text.match(extractionRegex.email)?.[1] || ''
@@ -224,6 +248,44 @@ const extractExperience = (text: string) => {
   return null
 }
 
+const indianCities = [
+  'New Delhi', 'Delhi', 'Mumbai', 'Bengaluru', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata',
+  'Pune', 'Ahmedabad', 'Jaipur', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Thane', 'Bhopal',
+  'Visakhapatnam', 'Patna', 'Vadodara', 'Ghaziabad', 'Ludhiana', 'Agra', 'Nashik', 'Faridabad',
+  'Meerut', 'Rajkot', 'Varanasi', 'Srinagar', 'Aurangabad', 'Dhanbad', 'Amritsar', 'Prayagraj',
+  'Allahabad', 'Ranchi', 'Howrah', 'Coimbatore', 'Jabalpur', 'Gwalior', 'Vijayawada', 'Jodhpur',
+  'Madurai', 'Raipur', 'Kota', 'Guwahati', 'Chandigarh', 'Thiruvananthapuram', 'Solapur',
+  'Hubballi-Dharwad', 'Tiruchirappalli', 'Bareilly', 'Mysuru', 'Tiruppur', 'Gurgaon', 'Gurugram',
+  'Aligarh', 'Jalandhar', 'Bhubaneswar', 'Salem', 'Warangal', 'Mira-Bhayandar', 'Vijayapura',
+  'Saharanpur', 'Gorakhpur', 'Bhiwandi', 'Amravati', 'Noida', 'Greater Noida', 'Kolhapur',
+  'Ajmer', 'Cuttack', 'Durgapur', 'Bokaro', 'Bhilai', 'Kochi', 'Kochin', 'Cochin', 'Mangaluru',
+  'Mangalore', 'Udaipur', 'Kurnool', 'Rourkela', 'Nanded', 'Sangli-Miraj', 'Belagavi', 'Bellary',
+  'Tirunelveli', 'Malegaon', 'Gaya', 'Jamshedpur', 'Jhansi', 'Bhatpara', 'Parbhani', 'Bhavnagar',
+  'Tirupati', 'Panipat', 'Durg', 'Pondicherry', 'Puducherry', 'Trivandrum', 'Trichy', 'Erode'
+]
+
+const indianStatesAndUTs = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh',
+  'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan',
+  'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+  'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Puducherry', 'Chandigarh',
+  'Andaman and Nicobar Islands', 'Dadra and Nagar Haveli', 'Daman and Diu', 'Lakshadweep'
+]
+
+const findIndianLocation = (text: string, locations: string[]) => {
+  const sortedLocations = [...locations].sort((a, b) => b.length - a.length)
+
+  for (const location of sortedLocations) {
+    const pattern = new RegExp(`\\b${escapeRegExp(location).replace(/\\s+/g, '\\s+')}\\b`, 'i')
+    if (pattern.test(text)) {
+      return location
+    }
+  }
+
+  return ''
+}
+
 const extractLocation = (text: string) => {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 
@@ -252,10 +314,14 @@ const extractLocation = (text: string) => {
     return ''
   }
 
+  const city = findValue('city') || findIndianLocation(text, indianCities)
+  const state = findValue('state') || findIndianLocation(text, indianStatesAndUTs.filter((location) => !indianCities.includes(location)))
+  const country = findValue('country') || ''
+
   return {
-    city: findValue('city'),
-    state: findValue('state'),
-    country: findValue('country'),
+    city,
+    state,
+    country,
   }
 }
 
@@ -334,10 +400,14 @@ const readRtfText = async (file: File) => {
 }
 
 const parseResumeFile = async (file: File): Promise<ParsedResume> => {
-  const type = file.name.split('.').pop()?.toLowerCase() || ''
-  const normalizedType = type === 'docx' || type === 'doc' || type === 'pdf' || type === 'rtf'
-    ? type
-    : 'txt'
+  const lowerName = file.name.toLowerCase()
+  const normalizedType = lowerName.endsWith('.pdf')
+    ? 'pdf'
+    : lowerName.endsWith('.docx') || lowerName.endsWith('.doc')
+      ? 'docx'
+      : lowerName.endsWith('.rtf')
+        ? 'rtf'
+        : 'txt'
 
   let extractedText = ''
 
@@ -674,8 +744,10 @@ function SearchPage({ supabase }: { supabase: any }) {
     const value = query.trim().toLowerCase()
     if (!value) return []
 
-    return records.filter((record) =>
-      [
+    const queryTerms = value.split(/\s+/).filter(Boolean)
+
+    return records.filter((record) => {
+      const searchText = [
         record.id,
         record.file_name,
         record.name,
@@ -691,10 +763,18 @@ function SearchPage({ supabase }: { supabase: any }) {
         record.dob,
         record.created_at,
       ]
+        .filter(Boolean)
         .join(' ')
         .toLowerCase()
-        .includes(value),
-    )
+
+      if (!searchText) return false
+
+      if (queryTerms.length > 1) {
+        return queryTerms.every((term) => searchText.includes(term))
+      }
+
+      return searchText.includes(value)
+    })
   }, [query, records])
 
   const renderHighlightedText = (text: string) => {
